@@ -12,13 +12,16 @@
          (window (max 0 window))                       ;; clamp window to min of 0
          (page-count (max 1 (ceiling count limit)))    ;; total pages implied by COUNT and LIMIT (min 1)
          (current-page (min (max 1 (or page 1)) page-count))  ;; requested page clamped into [1..page-count]
+         (offset (* (1- current-page) limit))
          (range-start (max 1 (- current-page window)))
          (range-end (min page-count (+ current-page window))))
     (list :count count
           :page current-page
           :limit limit
           :page-count page-count
-          :offset (* (1- current-page) limit)
+          :offset offset
+          :start-index (if (> count 0) (1+ offset) 0)
+          :end-index (min count (+ offset limit))
           :prev-page (and (> current-page 1) (1- current-page))
           :next-page (and (< current-page page-count) (1+ current-page))
           :pages (loop :for idx :from range-start :to range-end :collect idx)
