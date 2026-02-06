@@ -1,7 +1,8 @@
 (defpackage pager
   (:use :cl)
   (:export #:make-pager
-           #:with-pager))
+           #:with-pager
+           #:paginate-dao))
 
 (in-package pager)
 
@@ -28,30 +29,124 @@
           :show-start-gap (> range-start 2)
           :show-end-gap (< range-end (1- page-count)))))
 
-(defmacro with-pager (((items-var pager-var) producer-fn page-form limit-form &key (window 2)) &body body)
+(defmacro with-pager (((items-var pager-var)
+                       &key fetch-fn count-fn (window 2))
+                      page-form limit-form
+                      &body body)
+  "Pagination macro with separated fetch and count functions.
+
+  FETCH-FN: (lambda (limit offset) ...) -> items
+           Function that fetches a page of items given limit and offset.
+           Called exactly once with validated, corrected parameters.
+
+  COUNT-FN: (lambda () ...) -> total count
+           Function that returns the total count of items.
+           Called exactly once, result is cached.
+
+  PAGE-FORM: The requested page number (1-indexed)
+  LIMIT-FORM: The number of items per page
+
+  WINDOW: (optional, default 2) Number of pages to show before/after current page
+
+  The library handles:
+  - Input validation (page >= 1, limit >= 1)
+  - Count caching (count-fn called exactly once)
+  - Boundary checking (if page exceeds total pages, corrects to last page)
+  - Offset calculation
+  - Pager metadata generation
+
+  BODY is executed with ITEMS-VAR bound to the fetched items and PAGER-VAR
+  bound to a property list containing pagination metadata."
   (let ((req-page     (gensym "REQ-PAGE"))
         (limitg       (gensym "LIMIT"))
         (windowg      (gensym "WINDOW"))
-        (offsetg      (gensym "OFFSET"))
-        (tmp-items    (gensym "ITEMS"))
-        (tmp-count    (gensym "COUNT"))
-        (tmp-pager    (gensym "PAGER"))
+        (total-count  (gensym "TOTAL-COUNT"))
+        (tmp-pager    (gensym "TMP-PAGER"))
         (final-page   (gensym "FINAL-PAGE"))
         (final-offset (gensym "FINAL-OFFSET")))
     `(let* ((,req-page (max 1 (or ,page-form 1)))
             (,limitg   (max 1 (or ,limit-form 1)))
             (,windowg  (max 0 ,window))
-            (,offsetg  (* (1- ,req-page) ,limitg)))
-       (multiple-value-bind (,tmp-items ,tmp-count)
-           (funcall ,producer-fn ,limitg ,offsetg)
-         (let* ((,tmp-pager (make-pager ,tmp-count ,req-page ,limitg :window ,windowg))
-                (,final-page (getf ,tmp-pager :page)))
-           (if (= ,final-page ,req-page)
-               (let ((,items-var ,tmp-items)
-                     (,pager-var ,tmp-pager))
-                 ,@body)
-               (let ((,final-offset (* (1- ,final-page) ,limitg)))
-                 (multiple-value-bind (,items-var ,tmp-count)
-                     (funcall ,producer-fn ,limitg ,final-offset)
-                   (let ((,pager-var (make-pager ,tmp-count ,final-page ,limitg :window ,windowg)))
-                     ,@body)))))))))
+            ;; Fetch count exactly once
+            (,total-count (funcall ,count-fn))
+            ;; Create initial pager to check if page needs correction
+            (,tmp-pager (make-pager ,total-count ,req-page ,limitg :window ,windowg))
+            (,final-page (getf ,tmp-pager :page))
+            (,final-offset (getf ,tmp-pager :offset)))
+       ;; Fetch items exactly once with the corrected offset
+       (let ((,items-var (funcall ,fetch-fn ,limitg ,final-offset))
+             (,pager-var ,tmp-pager))
+         ,@body))))
+
+(defmacro paginate-dao (model-class page &key (limit 50) (window 2) order-by where)
+  "Convenience macro for paginating Mito DAOs with automatic count and fetch.
+
+  This is a high-level wrapper around WITH-PAGER for the common case of
+  paginating a single Mito DAO without complex joins or custom logic.
+
+  PARAMETERS:
+    MODEL-CLASS: The Mito model class to paginate (quoted symbol, e.g., 'post)
+    PAGE: The requested page number (1-indexed)
+    LIMIT: (optional, default 50) Number of items per page
+    WINDOW: (optional, default 2) Number of pages to show before/after current
+    ORDER-BY: (optional) SXQL order-by clause(s)
+              Single: '(:desc :created-at)
+              Multiple: '((:desc :created-at) (:asc :title))
+    WHERE: (optional) SXQL where clause, e.g., '(:= :published t)
+
+  RETURNS: Two values via VALUES:
+    1. ITEMS - List of model instances for the current page
+    2. PAGER - Property list with pagination metadata
+
+  EXAMPLES:
+
+    Simple pagination:
+      (paginate-dao 'post page :limit 10)
+
+    With ordering:
+      (paginate-dao 'post page
+        :limit 10
+        :order-by '(:desc :created-at))
+
+    With filtering:
+      (paginate-dao 'post page
+        :limit 10
+        :where '(:= :published t)
+        :order-by '(:desc :created-at))
+
+    In a controller:
+      (defun index (params)
+        (multiple-value-bind (posts pager)
+            (paginate-dao 'post (parse-integer (gethash \"page\" params))
+              :limit 20
+              :where '(:= :published t)
+              :order-by '(:desc :published-at))
+          (render-template \"posts.html\" :posts posts :pager pager)))
+
+  For complex queries with joins or subqueries, use WITH-PAGER directly."
+  (let ((limit-var (gensym "LIMIT"))
+        (offset-var (gensym "OFFSET")))
+    `(with-pager ((items pager)
+                  :fetch-fn (lambda (,limit-var ,offset-var)
+                              (mito:select-dao ,model-class
+                                ,@(when where
+                                    `((sxql:where ,where)))
+                                ,@(when order-by
+                                    (if (and (listp order-by)
+                                             (every #'listp order-by))
+                                        ;; Multiple order-by clauses: ((:desc :created-at) (:asc :title))
+                                        (mapcar (lambda (clause)
+                                                  `(sxql:order-by ,clause))
+                                                order-by)
+                                        ;; Single order-by clause: (:desc :created-at)
+                                        `((sxql:order-by ,order-by))))
+                                (sxql:limit ,limit-var)
+                                (sxql:offset ,offset-var)))
+                  :count-fn (lambda ()
+                              (mito:count-dao ,model-class
+                                ,@(when where
+                                    `(:where ,where))))
+                  ,page
+                  ,limit
+                  :window ,window)
+       (values items pager))))

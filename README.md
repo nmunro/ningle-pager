@@ -1,4 +1,4 @@
-# Pager v0.0.1
+# Pager v0.0.3
 
 Small Common Lisp pagination helper for computing page ranges and metadata.
 
@@ -30,6 +30,47 @@ If you are using Djula, add `pager` to your Djula search paths so the pager part
 ```
 
 ## Usage
+
+### Quick Start: `paginate-dao`
+
+The simplest way to paginate Mito models:
+
+```lisp
+;; Simple pagination
+(multiple-value-bind (posts pager)
+    (pager:paginate-dao 'post page :limit 10)
+  (render-template "posts.html" :posts posts :pager pager))
+
+;; With ordering
+(pager:paginate-dao 'post page
+  :limit 10
+  :order-by '(:desc :created-at))
+
+;; With filtering
+(pager:paginate-dao 'post page
+  :limit 20
+  :where '(:= :published t)
+  :order-by '(:desc :published-at))
+```
+
+**Complete controller example:**
+
+```lisp
+(setf (ningle:route app "/posts" :method :get)
+  (lambda (params)
+    (let ((page (parse-integer (or (gethash "page" params) "1"))))
+      (multiple-value-bind (posts pager)
+          (pager:paginate-dao 'post page :limit 10 :order-by '(:desc :created-at))
+        (render-template "posts.html"
+                        :posts posts
+                        :pager pager)))))
+```
+
+For complex queries with joins, use `with-pager` (see below).
+
+---
+
+### Low-Level API
 
 ### `make-pager`
 
@@ -69,22 +110,53 @@ Key fields:
 
 ### `with-pager`
 
-A macro to help with pagination.
+A macro for easy pagination with automatic validation and boundary handling.
 
-Use `with-pager` to fetch items and counts while handling out-of-range pages.
-The producer function must accept `(limit offset)` and return two values:
-items and total count.
+Use `with-pager` with separate fetch and count functions. The library handles all the complexity:
+- Input validation (page >= 1, limit >= 1)
+- Count caching (count-fn called exactly once)
+- Boundary checking (if page exceeds total, corrects to last page)
+- Offset calculation
 
 ```lisp
-(pager:with-pager ((items total pager)
-                   (lambda (limit offset)
-                     (values (fetch-items limit offset)
-                             (fetch-count)))
+(pager:with-pager ((items pager)
+                   :fetch-fn (lambda (limit offset)
+                               (fetch-items limit offset))
+                   :count-fn (lambda ()
+                               (fetch-count))
                    requested-page
                    requested-limit
                    :window 2)
   (render-page items pager))
 ```
+
+**Parameters:**
+- `fetch-fn`: Function that accepts `(limit offset)` and returns a list of items
+- `count-fn`: Function that returns the total count (called once, result cached)
+- `page`: Requested page number (1-indexed)
+- `limit`: Items per page
+- `window`: (optional, default 2) Number of pages to show before/after current
+
+**Example with Ningle/Mito:**
+
+```lisp
+(setf (ningle:route app "/posts" :method :get)
+  (lambda (params)
+    (let ((page (parse-integer (or (gethash "page" params) "1")))
+          (limit (parse-integer (or (gethash "limit" params) "10"))))
+      (pager:with-pager ((posts pager)
+                         :fetch-fn (lambda (limit offset)
+                                     (mito:select-dao 'post
+                                       (sxql:order-by (:desc :created-at))
+                                       (sxql:limit limit)
+                                       (sxql:offset offset)))
+                         :count-fn (lambda ()
+                                     (mito:count-dao 'post))
+                         page
+                         limit)
+        (render-template "posts.html"
+                        :posts posts
+                        :pager pager)))))
 
 Finally, add the included partial to your templates:
 
