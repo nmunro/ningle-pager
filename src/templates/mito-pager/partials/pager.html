@@ -31,7 +31,7 @@
               {% if page == pager.page %}
                 <span class="page-link">{{ page }}</span>
               {% else %}
-                <a class="page-link" href="{{ url }}?page={{ page }}&limit={{ pager.limit }}">{{ p }}</a>
+                <a class="page-link" href="{{ url }}?page={{ page }}&limit={{ pager.limit }}">{{ page }}</a>
               {% endif %}
             </li>
           {% endif %}

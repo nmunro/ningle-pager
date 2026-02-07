@@ -1,18 +1,18 @@
-(defsystem "pager"
-  :version "0.0.1"
+(defsystem "mito-pager"
+  :version "0.0.3"
   :author "nmunro"
   :license "BSD3-Clause"
   :description ""
-  :depends-on ()
+  :depends-on (:mito :sxql)
   :components ((:module "src"
                 :components
                 ((:file "main"))))
-  :in-order-to ((test-op (test-op "pager/tests"))))
+  :in-order-to ((test-op (test-op "mito-pager/tests"))))
 
-(defsystem "pager/tests"
+(defsystem "mito-pager/tests"
   :author "nmunro"
   :license "BSD3-Clause"
-  :depends-on ("pager"
+  :depends-on ("mito-pager"
                :rove)
   :components ((:module "tests"
                 :components

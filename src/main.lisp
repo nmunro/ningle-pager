@@ -1,10 +1,10 @@
-(defpackage pager
+(defpackage mito-pager
   (:use :cl)
   (:export #:make-pager
            #:with-pager
            #:paginate-dao))
 
-(in-package pager)
+(in-package mito-pager)
 
 
 (defun make-pager (count page limit &key (window 2))
