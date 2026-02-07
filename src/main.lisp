@@ -30,29 +30,25 @@
           :show-end-gap (< range-end (1- page-count)))))
 
 (defmacro with-pager (((items-var pager-var)
-                      &key fetch-fn count-fn page limit (window 2))
+                      &key fetch-fn page limit (window 2))
                       &body body)
-  "Pagination macro with separated fetch and count functions.
+  "Pagination macro where fetch function returns both items and count.
 
-  FETCH-FN: (lambda (limit offset) ...) -> items
-           Function that fetches a page of items given limit and offset.
-           Called exactly once with validated, corrected parameters.
-
-  COUNT-FN: (lambda () ...) -> total count
-           Function that returns the total count of items.
-           Called exactly once, result is cached.
+  FETCH-FN: (lambda (limit offset) ...) -> (values items count)
+           Function that fetches a page of items AND returns total count.
+           Must return (values items-list total-count).
+           Called once or twice (if page correction needed).
 
   PAGE: The requested page number (1-indexed)
   LIMIT: The number of items per page
-
   WINDOW: (optional, default 2) Number of pages to show before/after current page
 
-  The library handles:
-  - Input validation (page >= 1, limit >= 1)
-  - Count caching (count-fn called exactly once)
-  - Boundary checking (if page exceeds total pages, corrects to last page)
-  - Offset calculation
-  - Pager metadata generation
+  Example:
+    (with-pager ((reports pager)
+                 :fetch-fn (lambda (limit offset) (my-db:fetch-reports :limit limit :offset offset))
+                 :page page
+                 :limit 10)
+      (render-template :reports reports :pager pager))
 
   BODY is executed with ITEMS-VAR bound to the fetched items and PAGER-VAR
   bound to a property list containing pagination metadata."
@@ -62,20 +58,26 @@
         (total-count  (gensym "TOTAL-COUNT"))
         (tmp-pager    (gensym "TMP-PAGER"))
         (final-page   (gensym "FINAL-PAGE"))
-        (final-offset (gensym "FINAL-OFFSET")))
+        (final-offset (gensym "FINAL-OFFSET"))
+        (fetch-result (gensym "FETCH-RESULT")))
     `(let* ((,req-page (max 1 (or ,page 1)))
             (,limitg   (max 1 (or ,limit 1)))
-            (,windowg  (max 0 ,window))
-            ;; Fetch count exactly once
-            (,total-count (funcall ,count-fn))
-            ;; Create initial pager to check if page needs correction
-            (,tmp-pager (make-pager ,total-count ,req-page ,limitg :window ,windowg))
-            (,final-page (getf ,tmp-pager :page))
-            (,final-offset (getf ,tmp-pager :offset)))
-       ;; Fetch items exactly once with the corrected offset
-       (let ((,items-var (funcall ,fetch-fn ,limitg ,final-offset))
-             (,pager-var ,tmp-pager))
-         ,@body))))
+            (,windowg  (max 0 ,window)))
+       ;; First call fetch-fn to get initial count
+       (multiple-value-bind (,fetch-result ,total-count)
+           (funcall ,fetch-fn ,limitg (* (1- ,req-page) ,limitg))
+         ;; Create pager and check if page needs correction
+         (let* ((,tmp-pager (make-pager ,total-count ,req-page ,limitg :window ,windowg))
+                (,final-page (getf ,tmp-pager :page))
+                (,final-offset (getf ,tmp-pager :offset)))
+           ;; If page was corrected, re-fetch with correct offset
+           (multiple-value-bind (,items-var final-count)
+               (if (= ,final-page ,req-page)
+                   (values ,fetch-result ,total-count)
+                   (funcall ,fetch-fn ,limitg ,final-offset))
+             (declare (ignore final-count))
+             (let ((,pager-var ,tmp-pager))
+               ,@body)))))))
 
 (defmacro paginate-dao (model-class page &key (limit 50) (window 2) order-by where)
   "Convenience macro for paginating Mito DAOs with automatic count and fetch.
