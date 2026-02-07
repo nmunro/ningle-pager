@@ -38,16 +38,16 @@ The simplest way to paginate Mito models:
 ```lisp
 ;; Simple pagination
 (multiple-value-bind (posts pager)
-    (pager:paginate-dao 'post page :limit 10)
+    (mito-pager:paginate-dao 'post page :limit 10)
   (render-template "posts.html" :posts posts :pager pager))
 
 ;; With ordering
-(pager:paginate-dao 'post page
+(mito-pager:paginate-dao 'post page
   :limit 10
   :order-by '(:desc :created-at))
 
 ;; With filtering
-(pager:paginate-dao 'post page
+(mito-pager:paginate-dao 'post page
   :limit 20
   :where '(:= :published t)
   :order-by '(:desc :published-at))
@@ -60,7 +60,7 @@ The simplest way to paginate Mito models:
   (lambda (params)
     (let ((page (parse-integer (or (gethash "page" params) "1"))))
       (multiple-value-bind (posts pager)
-          (pager:paginate-dao 'post page :limit 10 :order-by '(:desc :created-at))
+          (mito-pager:paginate-dao 'post page :limit 10 :order-by '(:desc :created-at))
         (render-template "posts.html"
                         :posts posts
                         :pager pager)))))
@@ -77,7 +77,7 @@ For complex queries with joins, use `with-pager` (see below).
 A low level function to perform the pagination math and construct a pager object.
 
 ```lisp
-(pager:make-pager 123 5 10 :window 2)
+(mito-pager:make-pager 123 5 10 :window 2)
 ;; =>
 ;; (:count 123
 ;;  :page 5
@@ -119,7 +119,7 @@ Use `with-pager` with separate fetch and count functions. The library handles al
 - Offset calculation
 
 ```lisp
-(pager:with-pager ((items pager)
+(mito-pager:with-pager ((items pager)
                    :fetch-fn (lambda (limit offset)
                                (fetch-items limit offset))
                    :count-fn (lambda ()
@@ -144,7 +144,7 @@ Use `with-pager` with separate fetch and count functions. The library handles al
   (lambda (params)
     (let ((page (parse-integer (or (gethash "page" params) "1")))
           (limit (parse-integer (or (gethash "limit" params) "10"))))
-      (pager:with-pager ((posts pager)
+      (mito-pager:with-pager ((posts pager)
                          :fetch-fn (lambda (limit offset)
                                      (mito:select-dao 'post
                                        (sxql:order-by (:desc :created-at))
@@ -161,7 +161,7 @@ Use `with-pager` with separate fetch and count functions. The library handles al
 Finally, add the included partial to your templates:
 
 ```html
-{% include "pager/partials/pager.html" %}
+{% include "mito-pager/partials/pager.html" %}
 ```
 
 ## Tests
@@ -169,7 +169,7 @@ Finally, add the included partial to your templates:
 Run tests with:
 
 ```lisp
-(asdf:test-system :pager)
+(asdf:test-system :mito-pager)
 ```
 
 ## License

@@ -30,8 +30,7 @@
           :show-end-gap (< range-end (1- page-count)))))
 
 (defmacro with-pager (((items-var pager-var)
-                       &key fetch-fn count-fn (window 2))
-                      page-form limit-form
+                      &key fetch-fn count-fn page limit (window 2))
                       &body body)
   "Pagination macro with separated fetch and count functions.
 
@@ -43,8 +42,8 @@
            Function that returns the total count of items.
            Called exactly once, result is cached.
 
-  PAGE-FORM: The requested page number (1-indexed)
-  LIMIT-FORM: The number of items per page
+  PAGE: The requested page number (1-indexed)
+  LIMIT: The number of items per page
 
   WINDOW: (optional, default 2) Number of pages to show before/after current page
 
@@ -64,8 +63,8 @@
         (tmp-pager    (gensym "TMP-PAGER"))
         (final-page   (gensym "FINAL-PAGE"))
         (final-offset (gensym "FINAL-OFFSET")))
-    `(let* ((,req-page (max 1 (or ,page-form 1)))
-            (,limitg   (max 1 (or ,limit-form 1)))
+    `(let* ((,req-page (max 1 (or ,page 1)))
+            (,limitg   (max 1 (or ,limit 1)))
             (,windowg  (max 0 ,window))
             ;; Fetch count exactly once
             (,total-count (funcall ,count-fn))
@@ -146,7 +145,7 @@
                               (mito:count-dao ,model-class
                                 ,@(when where
                                     `(:where ,where))))
-                  ,page
-                  ,limit
+                  :page ,page
+                  :limit ,limit
                   :window ,window)
        (values items pager))))
