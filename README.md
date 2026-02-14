@@ -1,4 +1,4 @@
-# Pager v0.0.3
+# Pager v1.0.0
 
 Small Common Lisp pagination helper for computing page ranges and metadata.
 
@@ -119,23 +119,17 @@ Use `with-pager` with separate fetch and count functions. The library handles al
 - Offset calculation
 
 ```lisp
-(mito-pager:with-pager ((items pager)
-                   :fetch-fn (lambda (limit offset)
-                               (fetch-items limit offset))
-                   :count-fn (lambda ()
-                               (fetch-count))
-                   requested-page
-                   requested-limit
-                   :window 2)
+(mito-pager:with-pager ((items pager (lambda (limit offset) (fetch-items limit offset)) page limit :window 2))
   (render-page items pager))
 ```
 
 **Parameters:**
-- `fetch-fn`: Function that accepts `(limit offset)` and returns a list of items
-- `count-fn`: Function that returns the total count (called once, result cached)
-- `page`: Requested page number (1-indexed)
-- `limit`: Items per page
-- `window`: (optional, default 2) Number of pages to show before/after current
+- Paginated items
+- Pager object containing details from `make-pager`
+- Function that accepts `(limit offset)` and returns a list of items
+- `&page`: Requested page number (1-indexed)
+- `&limit`: Items per page
+- `&window`: (optional, default 2) Number of pages to show before/after current
 
 **Example with Ningle/Mito:**
 
@@ -144,16 +138,14 @@ Use `with-pager` with separate fetch and count functions. The library handles al
   (lambda (params)
     (let ((page (parse-integer (or (gethash "page" params) "1")))
           (limit (parse-integer (or (gethash "limit" params) "10"))))
-      (mito-pager:with-pager ((posts pager)
-                         :fetch-fn (lambda (limit offset)
+      (mito-pager:with-pager ((posts pager
+                         (lambda (limit offset)
                                      (mito:select-dao 'post
                                        (sxql:order-by (:desc :created-at))
                                        (sxql:limit limit)
                                        (sxql:offset offset)))
-                         :count-fn (lambda ()
-                                     (mito:count-dao 'post))
                          page
-                         limit)
+                         limit))
         (render-template "posts.html"
                         :posts posts
                         :pager pager)))))

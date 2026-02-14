@@ -1,5 +1,5 @@
 (defsystem "mito-pager"
-  :version "0.0.3"
+  :version "1.0.0"
   :author "nmunro"
   :license "BSD3-Clause"
   :description ""

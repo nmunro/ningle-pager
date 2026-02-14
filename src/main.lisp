@@ -29,12 +29,10 @@
           :show-start-gap (> range-start 2)
           :show-end-gap (< range-end (1- page-count)))))
 
-(defmacro with-pager (((items-var pager-var)
-                      &key fetch-fn page limit (window 2))
-                      &body body)
+(defmacro with-pager (((items-var pager-var fetch &key page limit (window 2))) &body body)
   "Pagination macro where fetch function returns both items and count.
 
-  FETCH-FN: (lambda (limit offset) ...) -> (values items count)
+  FETCH: (lambda (limit offset) ...) -> (values items count)
            Function that fetches a page of items AND returns total count.
            Must return (values items-list total-count).
            Called once or twice (if page correction needed).
@@ -44,10 +42,7 @@
   WINDOW: (optional, default 2) Number of pages to show before/after current page
 
   Example:
-    (with-pager ((reports pager)
-                 :fetch-fn (lambda (limit offset) (my-db:fetch-reports :limit limit :offset offset))
-                 :page page
-                 :limit 10)
+    (with-pager ((reports pager (lambda (limit offset) (my-db:fetch-reports :limit limit :offset offset)) :page page :limit 10))
       (render-template :reports reports :pager pager))
 
   BODY is executed with ITEMS-VAR bound to the fetched items and PAGER-VAR
@@ -63,9 +58,9 @@
     `(let* ((,req-page (max 1 (or ,page 1)))
             (,limitg   (max 1 (or ,limit 1)))
             (,windowg  (max 0 ,window)))
-       ;; First call fetch-fn to get initial count
+       ;; First call fetch to get initial count
        (multiple-value-bind (,fetch-result ,total-count)
-           (funcall ,fetch-fn ,limitg (* (1- ,req-page) ,limitg))
+           (funcall ,fetch ,limitg (* (1- ,req-page) ,limitg))
          ;; Create pager and check if page needs correction
          (let* ((,tmp-pager (make-pager ,total-count ,req-page ,limitg :window ,windowg))
                 (,final-page (getf ,tmp-pager :page))
@@ -74,7 +69,7 @@
            (multiple-value-bind (,items-var final-count)
                (if (= ,final-page ,req-page)
                    (values ,fetch-result ,total-count)
-                   (funcall ,fetch-fn ,limitg ,final-offset))
+                   (funcall ,fetch ,limitg ,final-offset))
              (declare (ignore final-count))
              (let ((,pager-var ,tmp-pager))
                ,@body)))))))
@@ -128,7 +123,7 @@
   (let ((limit-var (gensym "LIMIT"))
         (offset-var (gensym "OFFSET")))
     `(with-pager ((items pager)
-                  :fetch-fn (lambda (,limit-var ,offset-var)
+                  (lambda (,limit-var ,offset-var)
                               (mito:select-dao ,model-class
                                 ,@(when where
                                     `((sxql:where ,where)))
@@ -143,10 +138,6 @@
                                         `((sxql:order-by ,order-by))))
                                 (sxql:limit ,limit-var)
                                 (sxql:offset ,offset-var)))
-                  :count-fn (lambda ()
-                              (mito:count-dao ,model-class
-                                ,@(when where
-                                    `(:where ,where))))
                   :page ,page
                   :limit ,limit
                   :window ,window)
